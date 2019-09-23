@@ -41,7 +41,7 @@ void lock(int num_threads, int thread_id) {
 
 void unlock(int num_threads, int thread_id)
 {
-	label[thread_id] = false;
+	label[thread_id] = 0;
 }
 
 void do_work(int num_threads, int thread_id)
