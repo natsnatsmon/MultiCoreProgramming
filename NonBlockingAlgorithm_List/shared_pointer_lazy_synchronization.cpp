@@ -7,71 +7,61 @@
 using namespace std;
 using namespace chrono;
 
-//class nullMutex {
-//	void lock() {};
-//	void unlock() {};
-//};
-
-class NODE {
+class SPNODE {
 public:
 	int key;
-	NODE* next;
-	mutex nlock;
+	shared_ptr <SPNODE> next;
+	mutex spn_lock;
 	bool removed;
 
-	NODE() : key(0), removed(false) { next = NULL; }
+	SPNODE() { next = nullptr; removed = false; }
 
-	NODE(int key_value) : key(key_value) {
-		next = NULL;
+	SPNODE(int key_value) {
+		key = key_value;
+		next = nullptr;
+		removed = false;
 	}
 
-	~NODE() {}
+	~SPNODE() {}
 
 	void lock() {
-		nlock.lock();
+		spn_lock.lock();
 	}
 
 	void unlock() {
-		nlock.unlock();
+		spn_lock.unlock();
 	}
 };
 
-class LLIST {
-	NODE head, tail;
-	NODE* freeList;
-	NODE freeTail;
-	mutex fl_lock;
+class SPLLIST {
+	shared_ptr <SPNODE> head, tail;
 
 public:
-	LLIST() {
-		head.key = 0x80000000;
-		tail.key = 0x7FFFFFFF;
-		head.next = &tail;
-
-		freeTail.key = 0x7FFFFFFF;
-		freeList = &freeTail;
+	SPLLIST() {
+		head = make_shared<SPNODE>();
+		head->key = 0x80000000;
+		tail = make_shared<SPNODE>();
+		tail->key = 0x7FFFFFFF;
+		head->next = tail;
 	}
 
-	~LLIST() {}
+	~SPLLIST() {}
 
 	void Init() {
-		NODE* ptr;
-		while (head.next != &tail) {
-			ptr = head.next;
-			head.next = head.next->next;
-			delete ptr;
-		}
+		head->next = tail;
 	}
 
 	bool Add(int key) {
 		while (true) {
-			NODE* pred, * curr;
-			pred = &head;
-			curr = pred->next;
+			shared_ptr<SPNODE> pred,  curr;
+			pred = head; // 이건 가능 head가 있는 자리는 확실하니까
+			
+			curr = pred->next; // 이건 터질 가능성 있음. head->next는 바뀌기 때문에 data race 생김
 
+			
 			while (curr->key < key) {
-				pred = curr;
-				curr = curr->next;
+				pred = curr; // 이건 가능 로컬변수끼리 가능가능
+				curr = curr->next; // curr->next는 전역변수 건드는 일이라 터질 가능성 있음. 락 걸던지..
 			}
 
 			pred->lock(); curr->lock();
@@ -83,7 +73,7 @@ public:
 					return false;
 				}
 				else {
-					NODE* node = new NODE(key);
+					shared_ptr<SPNODE> node = make_shared<SPNODE>(key);
 					node->next = curr;
 					pred->next = node;
 
@@ -98,10 +88,12 @@ public:
 
 	bool Remove(int key) {
 		while (true) {
-			NODE* pred, * curr;
-			pred = &head;
+			shared_ptr<SPNODE> pred, curr;
+			pred = head;
+
 			curr = pred->next;
 
+			
 			while (curr->key < key) {
 				pred = curr;
 				curr = curr->next;
@@ -114,11 +106,6 @@ public:
 				if (key == curr->key) {
 					curr->removed = true;
 					pred->next = curr->next;
-
-					fl_lock.lock();
-					curr->next = freeList;
-					freeList = curr;
-					fl_lock.unlock();
 
 					pred->unlock(); curr->unlock();
 					return true;
@@ -135,21 +122,23 @@ public:
 	}
 
 	bool Contains(int key) {
-		NODE* curr;
-		curr = &head;
+		shared_ptr<SPNODE> curr;
+		curr = head;
+
 
 		while (curr->key < key)
 		{
 			curr = curr->next;
 		}
+
 		return (curr->key == key) && (!curr->removed);
 	}
 
 	void display20() {
 		int c = 20;
-		NODE* p = head.next;
+		shared_ptr<SPNODE> p = head->next;
 
-		while (p != &tail) {
+		while (p != tail) {
 			cout << p->key;
 			p = p->next;
 			c--;
@@ -159,28 +148,18 @@ public:
 		cout << endl;
 	}
 
-	void recycle_freeList() {
-		NODE *p = freeList;
-		while (p != &freeTail) {
-			NODE* n = p->next;
-			delete p;
-			p = n;
-		}
-		freeList = &freeTail;
-	}
-
 private:
-	bool validate(NODE* pred, NODE* curr) {
+	bool validate(shared_ptr<SPNODE> pred, shared_ptr<SPNODE> curr) {
 		return (!pred->removed) && (!curr->removed) && (pred->next == curr);
 	}
 };
 
-const auto NUM_TEST = 4000000;
+const auto NUM_TEST = 40000;
 const auto KEY_RANGE = 1000;
 
-LLIST llist;
+SPLLIST spllist;
 
-void Exec22(int num_thread) {
+void Exec23(int num_thread) {
 	int key;
 
 	for (int i = 0; i < NUM_TEST / num_thread; ++i)
@@ -188,17 +167,17 @@ void Exec22(int num_thread) {
 		switch (rand() % 3) {
 		case 0:
 			key = rand() % KEY_RANGE;
-			llist.Add(key);
+			spllist.Add(key);
 			break;
 
 		case 1:
 			key = rand() % KEY_RANGE;
-			llist.Remove(key);
+			spllist.Remove(key);
 			break;
 
 		case 2:
 			key = rand() % KEY_RANGE;
-			llist.Contains(key);
+			spllist.Contains(key);
 			break;
 
 		default:
@@ -212,13 +191,13 @@ int main()
 {
 	for (int num_threads = 1; num_threads <= 64; num_threads *= 2)
 	{
-		llist.Init();
+		spllist.Init();
 		vector<thread> threads;
 
 		auto start_time = high_resolution_clock::now();
 
 		for (int i = 0; i < num_threads; ++i)
-			threads.emplace_back(Exec22, num_threads);
+			threads.emplace_back(Exec23, num_threads);
 
 		for (auto& thread : threads)
 			thread.join();
@@ -229,8 +208,7 @@ int main()
 		auto exec_time = end_time - start_time;
 		int exec_ms = duration_cast<milliseconds>(exec_time).count();
 
-		llist.display20();
-		llist.recycle_freeList();
+		spllist.display20();
 		cout << "Threads [" << num_threads << "] "
 			<< " Exec_time  = " << exec_ms << "ms\n\n";
 	}
