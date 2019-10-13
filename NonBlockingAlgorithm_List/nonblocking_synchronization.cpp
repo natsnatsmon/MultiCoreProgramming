@@ -11,7 +11,7 @@ class NODE;
 
 // Marked pointer
 class MPTR {
-	int value;
+	int value; // 주소 + 마크
 
 public:
 	void set(NODE* node, bool removed) {
@@ -23,7 +23,7 @@ public:
 
 	bool CAS(int old_v, int new_v) {
 		return atomic_compare_exchange_strong(
-			reinterpret_cast<atomic_int*>(&next), &old_v, new_v);
+			reinterpret_cast<atomic_int*>(&value), & old_v, new_v);
 	}
 
 	// making은 두면서 next 값만 바꾸는 CAS
@@ -96,6 +96,8 @@ public:
 		tail.key = 0x7FFFFFFF;
 		head.next.set(&tail, false);
 
+		//cout << "&tail : " << &tail << endl;
+		//cout << "head.next.GetPtr() : " << head.next.GetPtr() << endl;
 		freeTail.key = 0x7FFFFFFF;
 		freeList = &freeTail;
 	}
@@ -114,25 +116,28 @@ public:
 	// pred와 curr의 값을 변경했을 때 날아가지 않고 바뀌게 하기 위해 레퍼런스로 받음
 	void Find(int key, NODE* (&pred), NODE* (&curr)) {
 	retry:
-
-		pred = &head;
-		curr = pred->next.GetPtr();
-
 		while (true) {
-			bool removed = false;
+			pred = &head;
+			curr = pred->next.GetPtr();
 
-			NODE* succ = curr->next.GetPtrNMark(&removed);
-			
-			while (true == removed) {
-				if (false == pred->next.CAS(curr, succ, false, false))
-					goto retry;
+			while (true) {
+				bool removed = false;
+
+				NODE* succ = curr->next.GetPtrNMark(removed);
+
+				while (true == removed) {
+					if (false == pred->next.CAS(curr, succ, false, false))
+						goto retry;
+					curr = succ;
+					succ = curr->next.GetPtrNMark(removed);
+				}
+
+				if (curr->key >= key) return;
+
+				pred = curr;
 				curr = succ;
+
 			}
-
-			if (curr->key >= key) return;
-			pred->next = curr->next;
-			curr = curr->next.GetPtr();
-
 		}
 	}
 
@@ -141,12 +146,13 @@ public:
 
 		while (true) {
 			Find(key, pred, curr);
-			pred = &head;
-			curr = pred->next;
-
+			if (curr->key == key)
+				return false;
+			
 			NODE* node = new NODE(key);
-			node->next = curr;
-			if (pred->next->CAS(curr, node, false, false)) {
+			node->next.set(curr, false);
+
+			if (pred->next.CAS(curr, node, false, false)) {
 				return true;
 			}
 		}
@@ -157,46 +163,46 @@ public:
 		
 		while (true) {
 			NODE* pred, * curr;
-			Find(pred, curr, key);
+			Find(key, pred, curr);
 
 			if (curr->key != key) {
 				return false;
 			}
 			else {
-				NODE *succ = curr->next->GetReference();
-				snip = curr->next->AttemptMark(succ, true);
+				NODE* succ = curr->next.GetPtr();
+				snip = curr->next.AttemptMark(succ, true);
 
 				if (!snip) continue;
 
 				// 성공, 실패와 상관없이 걍 끝내버린다..! 뒷수습 안해~ 묻지도 따지지도 않고 return true 때려~
-				pred->next->CAS(curr, succ, false, false);
+				pred->next.CAS(curr, succ, false, false);
 				return true;
 			}
 		}
 	}
 
 	bool Contains(int key) {
-		bool marked[] = { false };
+		bool marked = false;
 
 		NODE* curr;
 		curr = &head;
 
 		while (curr->key < key)
 		{
-			curr = curr->next->GetReference();
-			NODE* succ = curr->next->Get(marked);
+			curr = curr->next.GetPtr();
+			NODE* succ = curr->next.GetPtrNMark(marked);
 		}
 
-		return (curr->key == key) && (!marked[0]);
+		return (curr->key == key) && (!marked);
 	}
 
 	void display20() {
 		int c = 20;
-		NODE* p = head.next;
+		NODE* p = head.next.GetPtr();
 
 		while (p != &tail) {
 			cout << p->key;
-			p = p->next;
+			p = p->next.GetPtr();
 			c--;
 			if (c == 0) break;
 			cout << ", ";
@@ -204,15 +210,15 @@ public:
 		cout << endl;
 	}
 
-	void recycle_freeList() {
-		NODE* p = freeList;
-		while (p != &freeTail) {
-			NODE* n = p->next.GetPtr();
-			delete p;
-			p = n;
-		}
-		freeList = &freeTail;
-	}
+	//void recycle_freeList() {
+	//	NODE* p = freeList;
+	//	while (p != &freeTail) {
+	//		NODE* n = p->next.GetPtr();
+	//		delete p;
+	//		p = n;
+	//	}
+	//	freeList = &freeTail;
+	//}
 };
 
 const auto NUM_TEST = 4000000;
@@ -270,7 +276,7 @@ int main()
 		int exec_ms = duration_cast<milliseconds>(exec_time).count();
 
 		nlist.display20();
-		nlist.recycle_freeList();
+		//nlist.recycle_freeList();
 		cout << "Threads [" << num_threads << "] "
 			<< " Exec_time  = " << exec_ms << "ms\n\n";
 	}
