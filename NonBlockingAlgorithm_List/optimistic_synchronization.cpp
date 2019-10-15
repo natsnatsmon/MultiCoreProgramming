@@ -8,6 +8,7 @@ using namespace std;
 using namespace chrono;
 
 //class nullMutex {
+//public:
 //	void lock() {};
 //	void unlock() {};
 //};

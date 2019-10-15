@@ -36,16 +36,19 @@ public:
 		if (new_mark) new_value = new_value | 0x01;
 		else new_value = new_value & 0xFFFFFFFE;
 
-		return CAS(old_value, new_value);
+		return atomic_compare_exchange_strong(
+			reinterpret_cast<atomic_int*>(&value), &old_value, new_value);
+	//	return CAS(old_value, new_value);
 	}
 
 	// next 값은 두면서 making만 바꾸는 CAS
 	bool AttemptMark(NODE* old_node, bool new_mark) {
 		int old_value = reinterpret_cast<int>(old_node);
+		old_value = old_value & 0xFFFFFFFE;
 		int new_value = old_value;
 
 		if (new_mark) new_value = new_value | 0x01;
-		else new_value = new_value & 0xFFFFFFFE;
+		//else new_value = new_value & 0xFFFFFFFE;
 
 		return CAS(old_value, new_value);
 	}
@@ -57,10 +60,10 @@ public:
 	}
 
 	// 합성 주소에서 주소를 리턴하고 making 여부를 call by reference로 리턴
-	NODE* GetPtrNMark(bool &removed) {
+	NODE* GetPtrNMark(bool *removed) {
 		int temp = value;
-		if (0 == (temp & 0x1)) removed = false;
-		else removed = true;
+		if (0 == (temp & 0x1)) *removed = false;
+		else *removed = true;
 
 		return reinterpret_cast<NODE*>(value & 0xFFFFFFFE);
 	}
@@ -123,13 +126,13 @@ public:
 			while (true) {
 				bool removed = false;
 
-				NODE* succ = curr->next.GetPtrNMark(removed);
+				NODE* succ = curr->next.GetPtrNMark(&removed);
 
 				while (true == removed) {
 					if (false == pred->next.CAS(curr, succ, false, false))
 						goto retry;
 					curr = succ;
-					succ = curr->next.GetPtrNMark(removed);
+					succ = curr->next.GetPtrNMark(&removed);
 				}
 
 				if (curr->key >= key) return;
@@ -190,7 +193,7 @@ public:
 		while (curr->key < key)
 		{
 			curr = curr->next.GetPtr();
-			NODE* succ = curr->next.GetPtrNMark(marked);
+			NODE* succ = curr->next.GetPtrNMark(&marked);
 		}
 
 		return (curr->key == key) && (!marked);
@@ -222,11 +225,11 @@ public:
 };
 
 const auto NUM_TEST = 4000000;
-const auto KEY_RANGE = 1000;
+const auto KEY_RANGE = 100;
 
 NLIST nlist;
 
-void Exec22(int num_thread) {
+void Exec23(int num_thread) {
 	int key;
 
 	for (int i = 0; i < NUM_TEST / num_thread; ++i)
@@ -264,7 +267,7 @@ int main()
 		auto start_time = high_resolution_clock::now();
 
 		for (int i = 0; i < num_threads; ++i)
-			threads.emplace_back(Exec22, num_threads);
+			threads.emplace_back(Exec23, num_threads);
 
 		for (auto& thread : threads)
 			thread.join();

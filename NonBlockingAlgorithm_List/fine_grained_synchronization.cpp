@@ -7,10 +7,11 @@
 using namespace std;
 using namespace chrono;
 
-class nullMutex {
-	void lock() {};
-	void unlock() {};
-};
+//class nullMutex {
+//public:
+//	void lock() {};
+//	void unlock() {};
+//};
 
 class NODE {
 public:
@@ -28,11 +29,11 @@ public:
 	~NODE() {}
 
 	void lock() {
-//		nlock.lock();
+		nlock.lock();
 	}
 
 	void unlock() {
-//		nlock.unlock();
+		nlock.unlock();
 	}
 };
 

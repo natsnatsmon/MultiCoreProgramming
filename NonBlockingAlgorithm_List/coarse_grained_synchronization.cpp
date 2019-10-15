@@ -1,14 +1,15 @@
 #include <iostream>
-#include <mutex>
 #include <thread>
 #include <chrono>
 #include <vector>
+#include <mutex>
 
 using namespace std;
 using namespace chrono;
 
 // 만약 mutex가 없다면?
 //class nullMutex {
+//public:
 //	void lock() {};
 //	void unlock() {};
 //};

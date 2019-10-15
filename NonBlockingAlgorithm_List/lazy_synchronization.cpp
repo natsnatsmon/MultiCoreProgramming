@@ -176,7 +176,7 @@ private:
 };
 
 const auto NUM_TEST = 4000000;
-const auto KEY_RANGE = 1000;
+const auto KEY_RANGE = 100;
 
 LLIST llist;
 
@@ -230,7 +230,7 @@ int main()
 		int exec_ms = duration_cast<milliseconds>(exec_time).count();
 
 		llist.display20();
-		llist.recycle_freeList();
+		//llist.recycle_freeList();
 		cout << "Threads [" << num_threads << "] "
 			<< " Exec_time  = " << exec_ms << "ms\n\n";
 	}
